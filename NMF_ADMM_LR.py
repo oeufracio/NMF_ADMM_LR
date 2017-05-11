@@ -582,6 +582,117 @@ def nmf_WDH_01(V, r0, mu, rho, ranges):
     return W_plus, d_plus, H_plus
 
 
+def mls_WDH(X, mu1, mu2, epsilon, rho, ranges):
+    ''' 
+    Low-rank and sparse factorization with the idea implemented in NMF_WDH
+
+    min \mu_1 |D_1|_1 + \mu_2 |D_1|_1 
+    s.t.
+        X = WDH + S
+        D = D_1
+
+    Parameters
+    ----------
+    X: Matrix mxn to be factorized M = L + S
+    mu1: Penalization parameter
+    mu2: Penalization parameter
+    epsilon: Epsilon to stabilize the euqtion system
+    rho: Parameter in the ADMM
+    ranges: Iterations to be performed. Last number represents the max iters in the algorithm. The intermediate numbers
+            represent the iters where the rank of the factorization will be updated (removing the zero elements)
+
+    Returns
+    -------
+    L: Low-rank matrix L = WDH
+    S: Sparse matrix
+
+    References
+    ----------
+    Personal work!
+    '''
+
+    (m, n) = X.shape
+
+    r0 = min(m, n)
+
+    rho_1 = 1.0 / rho
+
+    W = np.random.uniform(0.0, 1.0, size=(m, r0))
+    H = np.random.uniform(0.0, 1.0, size=(r0, n))
+    d = np.random.uniform(0.0, 1.0, size=(r0))
+    S = np.random.uniform(0.0, 1.0, size=(m, n))
+
+    d_1 = np.copy(d)
+
+    alpha_X = np.zeros((m, n))
+    alpha_D = np.zeros((r0))
+
+    Irr = np.eye(r0)
+
+    last = 0
+    for j in range(len(ranges)):
+
+        for i in range(ranges[j] - last):
+            # Compute H
+            WD = np.dot(W, np.diag(d))
+            H_A1 = np.linalg.pinv(np.dot(np.transpose(WD), WD) + epsilon[j] * Irr)
+            H_B = np.dot(np.transpose(WD), X + rho_1 * alpha_X - S)
+            H = np.dot(H_A1, H_B)
+
+            # Compute W
+            DH = np.dot(np.diag(d), H)
+            W_A1 = np.linalg.pinv(np.dot(DH, np.transpose(DH)) + epsilon[j] * Irr)
+            W_B = np.dot(X + rho_1 * alpha_X - S, np.transpose(DH))
+            W = np.dot(W_B, W_A1)
+
+            # Compute D
+            d1 = np.linalg.pinv(np.dot(H, np.transpose(H)) * np.dot(np.transpose(W), W) + Irr)
+            d2 = np.diag(np.dot(H, np.dot(np.transpose(X + rho_1 * alpha_X - S), W))) + d_1 - rho_1 * alpha_D
+            d = np.dot(d1, d2)
+
+            # Compute S
+            S_prima = X + rho_1 * alpha_X - np.dot(W, np.dot(np.diag(d), H))
+            S = np.sign(S_prima) * np.clip(np.abs(S_prima) - mu2[j], 0.0, np.inf)
+
+            # Compute D_1
+            d_prima = d + rho_1 * alpha_D
+            d_1 = np.sign(d_prima) * np.clip(np.abs(d_prima) - mu1[j], 0.0, np.inf)
+
+            # Compute dual variables
+            alpha_X = alpha_X + rho * (X - np.dot(W, np.dot(np.diag(d), H)) - S)
+
+            alpha_D = alpha_D + rho * (d - d_1)
+
+        # Decrease rho
+        rho = rho * 0.8
+        rho_1 = 1.0 / rho
+
+        # ----------------- RESIZE ----------------- #
+        active_set = []
+        for k in range(d_1.shape[0]):
+            if abs(d_1[k]) > 0.0:
+                active_set.append(k)
+
+        # Reshape W,d,H,
+        W = remove_cols(W, active_set)
+        H = remove_rows(H, active_set)
+        d = remove_index(d, active_set)
+        S = S[:, :]
+
+        # Reshape d_1
+        d_1 = remove_index(d_1, active_set)
+
+        # Reshape alpha_X, alpha_D
+        alpha_X = np.zeros((m, n))
+        alpha_D = np.zeros((len(active_set)))
+
+        # Reshape Irr
+        Irr = np.eye(len(active_set))
+        # ----------------- RESIZE ----------------- #
+
+    return W, d, H, S
+
+
 if __name__ == '__main__':
 
     # Generar ejemplo
@@ -614,9 +725,40 @@ if __name__ == '__main__':
 
     # Resolver V = WDH_01
     iters = [10, 50, 100, 200, 500, 1500, 3000]
-    mu = list(np.linspace(1.5, 0.05, len(iters)))
+    mu = list(np.linspace(1.3, 0.05, len(iters)))
     rho = 0.5
     W, d, H = nmf_WDH_01(V0_norm, r0=100, mu=mu, rho=rho, ranges=iters)
     print d.shape, D1(V0_norm, np.dot(W, np.dot(np.diag(d), H)))
     print d
     print
+
+
+    # Resolver M = L + S
+    m = 100
+    n = 100
+    r = 5
+
+    W0 = np.random.uniform(0, 5, (m, r))
+    H0 = np.random.uniform(0, 5, (r, n))
+
+    S0 = np.random.uniform(0, 0.1, (m, n))
+
+    M0 = np.dot(W0, H0) + S0
+
+    max_M0 = np.max(M0)
+    M0_norm = (1.0 / max_M0) * M0
+
+    iters = [50, 100, 200, 500, 1500, 3000]
+    mu1 = [0.2, .2, .2, .2, .2, .2]
+    mu2 = [0.001, 0.001, 0.001, 0.001, 0.001, 0.001]
+    epsilon = [0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00000001]
+    rho = 0.5
+
+    W, d, H, S = mls_WDH(M0_norm, mu1, mu2, epsilon, rho, iters)
+    print(np.min(S), np.max(S))
+    print(d.shape)
+    print(np.linalg.norm(M0_norm - np.dot(W, np.dot(np.diag(d), H)) - S))
+
+    print(M0_norm)
+    print
+    print(np.dot(W, np.dot(np.diag(d), H)) + S)
