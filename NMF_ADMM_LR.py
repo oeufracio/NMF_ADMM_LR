@@ -330,7 +330,7 @@ def nmf_WDH(V, r0, mu, rho, ranges):
 
     # Initialize W,d,H, X
     W = np.random.uniform(0.0, 1.0, size=(m,r0))
-    d = np.ones(r0)
+    d = np.random.uniform(0.0, 1.0, size=(r0))
     H = np.random.uniform(0.0, 1.0, size=(r0,n))
     X = np.dot(W, np.dot(np.diag(d),H))
 
@@ -398,6 +398,10 @@ def nmf_WDH(V, r0, mu, rho, ranges):
             # Compute alpha_D
             alpha_D = alpha_D + rho*d - rho*d_plus
 
+        # Decrease rho
+        rho = rho * 0.8
+        rho_1 = 1.0 / rho
+
         # ----------------- RESIZE ----------------- #
         active_set = []
         for k in range(d_plus.shape[0]):
@@ -430,6 +434,152 @@ def nmf_WDH(V, r0, mu, rho, ranges):
     return W_plus, d_plus, H_plus
 
 
+def nmf_WDH_01(V, r0, mu, rho, ranges):
+    ''' 
+    This NonNegative Matrix Factorization (NMF) estimates the optimal (minimum) rank for the factorization.
+    This algorithm restrict the values of D and D_+ such that D,D_+ \in {0,1} by solving:
+
+    min D(V|X) + \mu tr(D_+)
+    s.t.
+        X = WDH
+        W = W_+
+        H = H_+
+        D = D_+
+        DD_+ = D_+
+        W_+, D_+, H_+ >= 0
+
+    with D(V|X) = Kullback-Leibler Divergence
+
+    Parameters
+    ----------
+    V: Matrix mxn to be factorized
+    r0: Initial rank of the factorization
+    mu: Penalization parameter
+    rho: Parameter in the ADMM
+    ranges: Iterations to be performed. Last number represents the max iters in the algorithm. The intermediate numbers
+            represent the iters where the rank of the factorization will be updated (removing the zero elements)
+
+    Returns
+    -------
+    W: Matrix in the factorization V = WDH
+    D: Diagonal matrix in the factorization V = WDH, with D \in {0,1}
+    H: Matrix in the factorization V = WDH
+
+    References
+    ----------
+    Personal work!
+    '''
+
+    (m, n) = V.shape
+    rho_1 = 1.0 / rho
+
+    # Initialize W,d,H, X
+    W = np.random.uniform(0.0, 1.0, size=(m, r0))
+    d = np.random.uniform(0.0, 1.0, size=(r0))
+    H = np.random.uniform(0.0, 1.0, size=(r0, n))
+    X = np.dot(W, np.dot(np.diag(d), H))
+
+    # Initialize W_plus, H_plus, d_plus
+    W_plus = np.copy(W)
+    H_plus = np.copy(H)
+    d_plus = np.random.uniform(0.0, 1.0, size=(r0))
+
+    # Initialize alpha_X, alpha_W, alpha_H, alpha_D, alpha_1
+    alpha_X = np.zeros((m, n))
+    alpha_W = np.zeros((m, r0))
+    alpha_H = np.zeros((r0, n))
+    alpha_D = np.zeros((r0))
+    alpha_1 = np.zeros((r0))
+
+    # Initialize Irr
+    Irr = np.eye(r0)
+
+    last = 0
+    for j in range(len(ranges)):
+
+        for i in range(ranges[j] - last):
+            # Compute H
+            WD = np.dot(W, np.diag(d))
+            H_A1 = np.linalg.pinv(np.dot(np.transpose(WD), WD) + Irr)
+            H_B = np.dot(np.transpose(WD), rho_1 * alpha_X + X) + H_plus - rho_1 * alpha_H
+            H = np.dot(H_A1, H_B)
+
+            # Compute W
+            DH = np.dot(np.diag(d), H)
+            W_A1 = np.linalg.pinv(np.dot(DH, np.transpose(DH)) + Irr)
+            W_B = np.dot(rho_1 * alpha_X + X, np.transpose(DH)) + W_plus - rho_1 * alpha_W
+            W = np.dot(W_B, W_A1)
+
+            # Compute d
+            d_A1 = np.linalg.pinv(np.dot(H, np.transpose(H)) * np.dot(np.transpose(W), W) + np.diag(d_plus ** 2) + Irr)
+            d_B = np.diag(np.dot(H, np.dot(np.transpose(rho_1 * alpha_X + X), W))) + d_plus ** 2 + d_plus - rho_1 * (
+            alpha_D + alpha_1 * d_plus)
+            d = np.dot(d_A1, d_B)
+
+            # Compute X
+            b = rho * np.dot(W, np.dot(np.diag(d), H)) - alpha_X - np.ones_like(X)
+            X = (1.0 / (2.0 * rho)) * b + (1.0 / (2.0 * rho)) * (b ** 2 + (4.0 * rho) * V) ** 0.5
+
+            # Compute W_plus
+            W_plus = np.clip(W + rho_1 * alpha_W, 0.0, np.inf)
+
+            # Compute H_plus
+            H_plus = np.clip(H + rho_1 * alpha_H, 0.0, np.inf)
+
+            # Compute d_plus
+            d_plus = ((d ** 2 - 2 * d + 2) ** (-1)) * (d + rho_1 * (alpha_D + alpha_1) - rho_1 * (alpha_1 * d) - mu[j])
+            d_plus = np.clip(d_plus, 0.0, np.inf)
+
+            # Compute alpha_X
+            alpha_X = alpha_X + rho * X - rho * np.dot(W, np.dot(np.diag(d), H))
+
+            # Compute alpha_W
+            alpha_W = alpha_W + rho * W - rho * W_plus
+
+            # Compute alpha_H
+            alpha_H = alpha_H + rho * H - rho * H_plus
+
+            # Compute alpha_D
+            alpha_D = alpha_D + rho * d - rho * d_plus
+
+            # Compute alpha_1
+            alpha_1 = alpha_1 + rho * (d * d_plus) - rho * d_plus
+
+        # Decrease rho
+        rho = rho * 0.8
+        rho_1 = 1.0 / rho
+
+        # ----------------- RESIZE ----------------- #
+        active_set = []
+        for k in range(d_plus.shape[0]):
+            if d_plus[k] > 0.1:
+                active_set.append(k)
+
+        # Reshape W,d,H, X
+        W = remove_cols(W, active_set)
+        H = remove_rows(H, active_set)
+        d = remove_index(d, active_set)
+        X = np.dot(W, np.dot(np.diag(d), H))
+
+        # Reshape W_plus, H_plus, d_plus
+        W_plus = remove_cols(W_plus, active_set)
+        H_plus = remove_rows(H_plus, active_set)
+        d_plus = remove_index(d_plus, active_set)
+
+        # Reshape alpha_X, alpha_W, alpha_H, alpha_D, alpha_1
+        alpha_X = np.zeros((m, n))
+        alpha_W = np.zeros((m, len(active_set)))
+        alpha_H = np.zeros((len(active_set), n))
+        alpha_D = np.zeros((len(active_set)))
+        alpha_1 = np.zeros((len(active_set)))
+
+        # Reshape Irr
+        Irr = np.eye(len(active_set))
+        # ----------------- RESIZE ----------------- #
+
+        last = ranges[j]
+
+    return W_plus, d_plus, H_plus
 
 
 if __name__ == '__main__':
@@ -449,14 +599,24 @@ if __name__ == '__main__':
     V0_norm = (1.0 / max_V0) * V0
 
     # Resolver V = WH
-    W, H = nmf_WH(V0_norm, r=5, rho=0.1, max_iter=2000)
+    W, H = nmf_WH(V0_norm, r=5, rho=0.1, max_iter=3000)
     print D1(V0_norm, np.dot(W,H))
+    print
 
     # Resolver V = WDH
-    iters = [50, 100, 200, 500, 1000, 2000]
-    mu = [1.0, 0.5, .5, .5, .5, .5]
-    rho = 0.1
+    iters = [10, 50, 100, 200, 500, 1500, 3000]
+    mu = list(np.linspace(1.5, 0.05, len(iters)))
+    rho = 0.5
     W, d, H = nmf_WDH(V0_norm, r0=100, mu=mu, rho=rho, ranges=iters)
     print d.shape, D1(V0_norm, np.dot(W, np.dot(np.diag(d), H)))
+    print d
+    print
 
-
+    # Resolver V = WDH_01
+    iters = [10, 50, 100, 200, 500, 1500, 3000]
+    mu = list(np.linspace(1.5, 0.05, len(iters)))
+    rho = 0.5
+    W, d, H = nmf_WDH_01(V0_norm, r0=100, mu=mu, rho=rho, ranges=iters)
+    print d.shape, D1(V0_norm, np.dot(W, np.dot(np.diag(d), H)))
+    print d
+    print
