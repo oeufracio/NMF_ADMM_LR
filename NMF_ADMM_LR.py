@@ -694,7 +694,7 @@ def mls_WDH(X, mu1, mu2, epsilon, rho, ranges):
 
 
 if __name__ == '__main__':
-
+    '''
     # Generar ejemplo
     m = 100
     n = 100
@@ -732,11 +732,10 @@ if __name__ == '__main__':
     print d
     print
 
-
     # Resolver M = L + S
-    m = 100
-    n = 100
-    r = 5
+    m = 400
+    n = 400
+    r = 10
 
     W0 = np.random.uniform(0, 5, (m, r))
     H0 = np.random.uniform(0, 5, (r, n))
@@ -748,13 +747,17 @@ if __name__ == '__main__':
     max_M0 = np.max(M0)
     M0_norm = (1.0 / max_M0) * M0
 
-    iters = [50, 100, 200, 500, 1500, 3000]
-    mu1 = [0.2, .2, .2, .2, .2, .2]
+    iters = [50, 100, 200, 500, 1000, 2000]
+    mu1 = [.2, .2, .2, .2, .2, .2]
     mu2 = [0.001, 0.001, 0.001, 0.001, 0.001, 0.001]
     epsilon = [0.0001, 0.0001, 0.0001, 0.0001, 0.0001, 0.00000001]
     rho = 0.5
 
+    import time
+    t0 = time.clock()
     W, d, H, S = mls_WDH(M0_norm, mu1, mu2, epsilon, rho, iters)
+    t1 = time.clock()
+    print 'time: ', t1 - t0
     print(np.min(S), np.max(S))
     print(d.shape)
     print(np.linalg.norm(M0_norm - np.dot(W, np.dot(np.diag(d), H)) - S))
@@ -762,3 +765,4 @@ if __name__ == '__main__':
     print(M0_norm)
     print
     print(np.dot(W, np.dot(np.diag(d), H)) + S)
+    '''
