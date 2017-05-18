@@ -1,74 +1,123 @@
 import numpy as np
 from scipy import misc
+import json
+import time
+import os
 import NMF_ADMM_LR as odin
 
 
-def loadFrames(frameNames, path):
+def loadFrames(path_in, frame_prefix, frame_start, frame_end, frame_format):
 
-    # number of frames
-    f = len(frameNames)
+    # load one frame
+    img0 = misc.imread('{0}/{1}{2}{3}'.format(path_in, frame_prefix, frame_start, frame_format)).astype('float64')
 
-    # load one image
-    img0 = misc.imread('./{0}/{1}'.format(path,frameNames[0])).astype('float64')
-
-    # get dimension
-    w, h, d = img0.shape
+    # get dimensions
+    r, c, d = img0.shape
 
     # define matrix
-    A = np.zeros((w * h, f))
+    A = np.zeros((r * c, frame_end - frame_start + 1))
 
-    for i in range(f):
-        img = misc.imread('./{0}/{1}'.format(path,frameNames[i])).astype('float64')
-        A[:, i] = np.mean(img, 2).flatten()
+    # load all frames
+    for i in range(frame_start, frame_end+1):
+        img = misc.imread('{0}/{1}{2}{3}'.format(path_in, frame_prefix, i, frame_format)).astype('float64')
+        A[:, i-frame_start] = np.mean(img, 2).flatten()
 
-    return A, w, h
+    # Make A_ij \in [0,1]
+    max_A = np.max(np.abs(A))
+    A = (1.0 / max_A) * A
+
+    return A, r, c
 
 
-def generateFrames(A, w, h, fileName):
+def generateFrames(A, r, c, path_out, file_name, frame_start, frame_end, frame_format):
 
-    for i in range(A.shape[1]):
-        misc.imsave('./demo_out/{0}{1}.png'.format(fileName, i + 1), A[:, i].reshape((w, h)).astype('int'))
+    max_A = np.max(np.abs(A))
+    A = (255.0 / max_A) * A
+
+    for i in range(frame_start, frame_end + 1):
+        name = '{0}/{1}{2}{3}'.format(path_out, file_name, i, frame_format)
+        misc.imsave(name, A[:, i-frame_start].reshape((r, c)).astype('int'))
+
+
+def mixFrames(M, L, S, r, c, path_out, file_name, frame_start, frame_end, frame_format):
+
+    max_M = np.max(M)
+    M = (255.0 / max_M) * M
+
+    max_L = np.max(L)
+    L = (255.0 / max_L) * L
+
+    max_S = np.max(np.abs(S))
+    S = (255.0 / max_S) * S
+
+    for i in range(frame_start, frame_end + 1):
+
+        X1 = M[:, i-frame_start].reshape((r, c)).astype('int')
+        X2 = L[:, i-frame_start].reshape((r, c)).astype('int')
+        X3 = S[:, i-frame_start].reshape((r, c)).astype('int')
+        X = np.concatenate((X1, X2, X3), axis=1)
+        misc.imsave('{0}/{1}{2}{3}'.format(path_out, file_name, i, frame_format), X)
 
 
 if __name__ == '__main__':
 
-    # Define frames from video
-    path = './demo'
-    frameNames = ['demo_1.png', 'demo_2.png', 'demo_3.png', 'demo_4.png', 'demo_5.png', 'demo_6.png', 'demo_7.png',
-                  'demo_8.png', 'demo_9.png', 'demo_10.png', 'demo_11.png', 'demo_12.png', 'demo_13.png', 'demo_14.png',
-                  'demo_15.png', 'demo_16.png', 'demo_17.png', 'demo_18.png', 'demo_19.png', 'demo_20.png',
-                  'demo_21.png', 'demo_22.png', 'demo_23.png', 'demo_24.png', 'demo_25.png', 'demo_26.png',
-                  'demo_27.png', 'demo_28.png', 'demo_29.png', 'demo_30.png', 'demo_31.png', 'demo_32.png',
-                  'demo_33.png', 'demo_34.png', 'demo_35.png', 'demo_36.png', 'demo_37.png', 'demo_38.png',
-                  'demo_39.png', 'demo_40.png', 'demo_41.png', 'demo_42.png', 'demo_43.png', 'demo_44.png',
-                  'demo_45.png', 'demo_46.png', 'demo_47.png', 'demo_48.png', 'demo_49.png', 'demo_50.png',
-                  'demo_51.png']
+    # load configuration file
+    config = json.loads(open('./video-config.json').read())
 
-    # load images and generate matrix A with each frame per column
-    A, w, h = loadFrames(frameNames,path)
+    # execute each experiment defined in the configuration file
+    for test in config["Execute"]:
 
-    # Make A_ij \in [0,1]
-    max_A = np.max(A)
-    A_norm = (1.0 / max_A) * A
+        # Load config arguments
+        path_in = config["Experiments"][test]["files"]["path_in"]
+        path_out = os.path.join(config["Experiments"][test]["files"]["path_out"], test)
+        frame_prefix = config["Experiments"][test]["files"]["frame_prefix"]
+        frame_start = config["Experiments"][test]["files"]["frame_range0"]
+        frame_end = config["Experiments"][test]["files"]["frame_range1"]
+        frame_format = config["Experiments"][test]["files"]["frame_format"]
 
-    # Define parameters
-    iters = [50, 100, 200, 500, 1000]
-    mu1 = [15., 10., 10., 5., 5., 5.]
-    mu2 = [0.001, 0.001, 0.001, 0.001, 0.001]
-    epsilon = [0.0001, 0.0001, 0.0001, 0.0001, 0.00000001]
-    rho = 1.0
+        iters = config["Experiments"][test]["parameters"]["iters"]
+        mu1 = config["Experiments"][test]["parameters"]["mu1"]
+        mu2 = config["Experiments"][test]["parameters"]["mu2"]
+        epsilon = config["Experiments"][test]["parameters"]["epsilon"]
+        rho = config["Experiments"][test]["parameters"]["rho"]
 
-    # Execute algorithm M = L + S
-    import time
-    t0 = time.clock()
-    W, d, H, S = odin.mls_WDH(A_norm, mu1, mu2, epsilon, rho, iters)
-    t1 = time.clock()
+        # load images and generate matrix A with each frame per column
+        A, r, c = loadFrames(path_in, frame_prefix, frame_start, frame_end, frame_format)
 
-    # Print some result
-    print 'time: ', t1 - t0
-    print('rank: ', d.shape)
-    print('minFx: ', np.linalg.norm(A_norm - np.dot(W, np.dot(np.diag(d), H)) - S))
+        # execute algorithm M = L + S
+        t0 = time.clock()
+        W, d, H, S = odin.mls_WDH(A, mu1, mu2, epsilon, rho, iters)
+        t1 = time.clock()
 
-    # Save frames from L and S
-    generateFrames(max_A*(np.dot(W, np.dot(np.diag(d), H))), w, h, 'L')
-    generateFrames(max_A * np.abs(S), w, h, 'S')
+        # create directory
+        if not os.path.exists(path_out):
+            os.makedirs(path_out)
+
+        # save statistics for this experiment
+        statistics = {
+            "Experiment": config["Experiments"][test],
+            "Results": {
+                "time": t1 - t0,
+                "rank": d.shape[0],
+                "relError": np.linalg.norm(A - np.dot(W, np.dot(np.diag(d), H)) - S)**2 / np.linalg.norm(A)**2
+            }
+        }
+
+        with open('{0}/{1}_results.json'.format(path_out,test), 'w') as outfile:
+            json.dump(statistics, outfile, indent=4, sort_keys=True)
+
+
+        # print some result
+        print test
+        print 'time: ', statistics["Results"]["time"]
+        print 'rank: ', statistics["Results"]["rank"]
+        print 'relError: ', statistics["Results"]["relError"]
+        print
+
+        # save frames from L and S
+        L = np.dot(W, np.dot(np.diag(d), H))
+        generateFrames(L, r, c, path_out, 'L_', frame_start, frame_end, frame_format)
+
+        generateFrames(S, r, c, path_out, 'S_', frame_start, frame_end, frame_format)
+
+        mixFrames(A, L, S, r, c, path_out, 'X_', frame_start, frame_end, frame_format)
