@@ -1,5 +1,5 @@
 {
-    "Execute" : ["shop"],
+    "Execute" : ["escalator_small"],
     "Experiments" : {
         "demo" : {
             "description": "Relative high penalized parameters to ensure rank-1 in demo video",
@@ -109,6 +109,48 @@
                     50.0,
                     50.0,
                     50.0
+                ],
+                "mu2": [
+                    0.001,
+                    0.001,
+                    0.001,
+                    0.001,
+                    0.001
+                ],
+                "epsilon": [
+                    0.0001,
+                    0.0001,
+                    0.0001,
+                    0.0001,
+                    0.00000001
+                ],
+                "rho": 10.0
+            }
+        },
+        "escalator_small" : {
+            "description": "Relative high penalized parameters to ensure rank-1 in escalator video",
+            "files": {
+                "path_in": "./videos/escalator_small",
+                "path_out": "./results",
+                "frame_prefix": "escalator_",
+                "frame_range0": 1,
+                "frame_range1": 15,
+                "frame_format": ".png"
+            },
+            "parameters": {
+                "iters": [
+                    50,
+                    100,
+                    200,
+                    500,
+                    1000
+                ],
+                "mu1": [
+                    35.0,
+                    35.0,
+                    35.0,
+                    35.0,
+                    35.0
                 ],
                 "mu2": [
                     0.001,
