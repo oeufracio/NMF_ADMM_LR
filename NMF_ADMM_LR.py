@@ -582,11 +582,168 @@ def nmf_WDH_01(V, r0, mu, rho, ranges):
     return W_plus, d_plus, H_plus
 
 
+def nmf_WDH_LS(X, mu1, mu2, rho, ranges):
+    '''
+    This factorization imposes non-negativity in the Low-rank and sparse factorization by solving:
+
+	min \mu_1 |D_+|_1 + \mu_2 |S_+|_1
+
+    s.t.
+    	X = WDH + S
+        W = W_+
+        D = D_+
+        H = H_+
+        S = S_+
+        W_+, D_+, H_+, S_+ >= 0
+
+
+    Parameters
+    ----------
+    X: Matrix mxn to be factorized
+    r0: Initial rank of the factorization
+    mu_1: Penalization parameter of low_rank
+    mu_2: Penalization parameter of sparsity
+    rho: Parameter in the ADMM
+    ranges: Iterations to be performed. Last number represents the max iters in the algorithm. The intermediate numbers
+            represent the iters where the rank of the factorization will be updated (removing the zero elements)
+
+    Returns
+    -------
+    L: Low-rank non-negative matrix L = W_+ D_+ H_+
+    S: Sparse non-negative matrix S_+
+
+    References
+    ----------
+    Personal work!
+    '''
+  
+
+    (m, n) = X.shape
+
+    r0 = min(m, n)
+
+    rho_1 = 1.0 / rho
+
+    # Initialize W, d, H, S
+    W = np.random.uniform(0.0, 1.0, size=(m, r0))
+    d = np.random.uniform(0.0, 1.0, size=(r0))
+    H = np.random.uniform(0.0, 1.0, size=(r0, n))
+    S = np.random.uniform(0.0, 1.0, size=(m, n))
+
+    
+    # Initialize W_plus, H_plus, d_plus, S_plus
+    W_plus = np.copy(W)
+    H_plus = np.copy(H)
+    d_plus = np.random.uniform(0.0, 1.0, size=(r0))
+    S_plus = np.copy(S)
+
+    # Initialize alpha_X, alpha_W, alpha_H, alpha_D, alpha_1
+    alpha_X = np.zeros((m, n))
+    alpha_W = np.zeros((m, r0))
+    alpha_H = np.zeros((r0, n))
+    alpha_D = np.zeros((r0))
+    alpha_S = np.zeros((m, n))
+
+    # Initialize Irr
+    Irr = np.eye(r0)
+
+    last = 0
+    for j in range(len(ranges)):
+
+        for i in range(ranges[j] - last):
+            # Compute H
+            WD = np.dot(W, np.diag(d))
+            H_A1 = np.linalg.pinv(np.dot(np.transpose(WD), WD) + Irr)
+            H_B = np.dot(np.transpose(WD),  X + rho_1*alpha_X - S) + H_plus - rho_1*alpha_H
+            H = np.dot(H_A1, H_B)
+
+            # Compute W
+            DH = np.dot(np.diag(d), H)
+            W_A1 = np.linalg.pinv(np.dot(DH, np.transpose(DH)) + Irr)
+            W_B = np.dot(X + rho_1*alpha_X - S, np.transpose(DH)) + W_plus - rho_1*alpha_W
+            W = np.dot(W_B, W_A1)
+
+            # Compute d
+            d_A1 = np.linalg.pinv(np.dot(H, np.transpose(H)) * np.dot(np.transpose(W), W) + Irr)
+            d_B = np.diag(np.dot(H, np.dot(np.transpose(X + rho_1*alpha_X - S), W))) + d_plus - rho_1*alpha_D
+            d = np.dot(d_A1, d_B)
+
+            # Compute S
+            S = 0.5*( X + rho_1*alpha_X - np.dot(W, np.dot(np.diag(d), H)) + S_plus - rho_1*alpha_S )
+
+            # Compute W_plus
+            W_plus = np.clip(W + rho_1*alpha_W, 0.0, np.inf)
+
+            # Compute H_plus
+            H_plus = np.clip(H + rho_1*alpha_H, 0.0, np.inf)
+
+            # Compute d_plus
+            d_plus = np.clip(d + rho_1*alpha_D - mu1[j],0.0, np.inf)
+
+            # Compute S_plus
+            S_plus = np.clip(S + rho_1*alpha_S - mu2[j],0.0, np.inf)
+
+
+            # Compute alpha_X
+            alpha_X = alpha_X + rho*X - rho*np.dot(W, np.dot(np.diag(d), H)) - rho*S
+
+            # Compute alpha_W
+            alpha_W = alpha_W + rho*W - rho*W_plus
+
+            # Compute alpha_H
+            alpha_H = alpha_H + rho*H - rho*H_plus
+
+            # Compute alpha_D
+            alpha_D = alpha_D + rho*d - rho*d_plus
+
+            # Compute alpha_S
+            alpha_S = alpha_S + rho*S - rho*S_plus
+
+        # Decrease rho
+        rho = rho * 0.8
+        rho_1 = 1.0 / rho
+
+        # ----------------- RESIZE ----------------- #
+        active_set = []
+        for k in range(d_plus.shape[0]):
+            if d_plus[k] > 0.0:
+                active_set.append(k)
+
+        # Reshape W,d,H, S
+        W = remove_cols(W, active_set)
+        H = remove_rows(H, active_set)
+        d = remove_index(d, active_set)
+        S = S[:, :]
+        
+
+        # Reshape W_plus, H_plus, d_plus, S_plus
+        W_plus = remove_cols(W_plus, active_set)
+        H_plus = remove_rows(H_plus, active_set)
+        d_plus = remove_index(d_plus, active_set)
+        S_plus = S_plus[:, :]
+
+        # Reshape alpha_X, alpha_W, alpha_H, alpha_D, alpha_S
+        alpha_X = np.zeros((m, n))
+        alpha_W = np.zeros((m, len(active_set)))
+        alpha_H = np.zeros((len(active_set), n))
+        alpha_D = np.zeros((len(active_set)))
+        alpha_S = np.zeros((m, n))
+
+        # Reshape Irr
+        Irr = np.eye(len(active_set))
+        # ----------------- RESIZE ----------------- #
+
+        last = ranges[j]
+
+    return W_plus, d_plus, H_plus, S_plus
+
+
+
 def mls_WDH(X, mu1, mu2, epsilon, rho, ranges):
     ''' 
     Low-rank and sparse factorization with the idea implemented in NMF_WDH
 
-    min \mu_1 |D_1|_1 + \mu_2 |D_1|_1 
+    min \mu_1 |D_1|_1 + \mu_2 |S|_1 
     s.t.
         X = WDH + S
         D = D_1

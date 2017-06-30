@@ -84,10 +84,17 @@ if __name__ == '__main__':
         # load images and generate matrix A with each frame per column
         A, r, c = loadFrames(path_in, frame_prefix, frame_start, frame_end, frame_format)
 
+        '''
         # execute algorithm M = L + S
         t0 = time.clock()
         W, d, H, S = odin.mls_WDH(A, mu1, mu2, epsilon, rho, iters)
         t1 = time.clock()
+        '''
+        # execute algorithm NMF-LR
+        t0 = time.clock()
+        W, d, H, S = odin.nmf_WDH_LS(A, mu1, mu2, rho, iters)
+        t1 = time.clock()
+
 
         # create directory
         if not os.path.exists(path_out):
