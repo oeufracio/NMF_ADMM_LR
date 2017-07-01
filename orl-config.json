@@ -1,0 +1,47 @@
+{
+    "Execute" : ["orl_5"],
+    "Experiments" : {
+        "orl_5" : {
+            "description": "Low-rank and Sparse with Non-Negative constrains for the ORL database",
+            "files": {
+                "path_in": "./att_faces",
+                "faces": ["s4"],
+                "path_out": "./results",
+                "frame_range0": 1,
+                "frame_range1": 10,
+                "frame_format": ".pgm"
+            },
+            "parameters": {
+                "iters": [
+                    50,
+                    100,
+                    200,
+                    500,
+                    1000
+                ],
+                "mu1": [
+                    5.0,
+                    5.0,
+                    5.0,
+                    5.0,
+                    5.0
+                ],
+                "mu2": [
+                    0.01,
+                    0.01,
+                    0.01,
+                    0.01,
+                    0.01
+                ],
+                "epsilon": [
+                    0.0001,
+                    0.0001,
+                    0.0001,
+                    0.0001,
+                    0.00000001
+                ],
+                "rho": 10.0
+            }
+        }
+    }
+}

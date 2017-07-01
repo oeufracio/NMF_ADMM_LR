@@ -1,0 +1,148 @@
+import numpy as np
+from scipy import misc
+import json
+import time
+import os
+import NMF_ADMM_LR as odin
+
+
+def loadFrames(path_in, faces, frame_start, frame_end, frame_format):
+
+    # number of sets
+    n = len(faces)
+
+    # load one frame
+    img0 = misc.imread('{0}/{1}/{2}{3}'.format(path_in, faces[0], frame_start, frame_format)).astype('float64')
+
+    # get dimensions
+    r, c = img0.shape
+
+    # define matrix
+    A = np.zeros( (r * c, n*(frame_end - frame_start + 1)) )
+    
+    count = 0
+
+    #iterate each face directory
+    for j in range(n):
+
+        cur_directory = faces[j]
+
+        # load images from current directory
+        for i in range(frame_start, frame_end+1):
+            img = misc.imread('{0}/{1}/{2}{3}'.format(path_in, cur_directory, i, frame_format)).astype('float64')
+            A[:, count] = img.flatten()
+            count += 1
+
+    # Make A_ij \in [0,1]
+    max_A = np.max(np.abs(A))
+    A = (1.0 / max_A) * A
+
+    return A, r, c
+
+
+def generateFrames(A, r, c, path_out, file_name, frame_start, frame_end, frame_format):
+
+    n = A.shape[1]
+
+    max_A = np.max(np.abs(A))
+    A = (255.0 / max_A) * A
+
+
+    for i in range(n):
+        name = '{0}/{1}{2}{3}'.format(path_out, file_name, i, frame_format)
+        misc.imsave(name, A[:, i].reshape((r, c)).astype('int'))
+
+
+def mixFrames(M, L, S, r, c, path_out, faces, file_name, frame_start, frame_end, frame_format):
+
+    n = M.shape[1]
+
+    max_M = np.max(M)
+    M = (255.0 / max_M) * M
+
+    max_L = np.max(L)
+    L = (255.0 / max_L) * L
+
+    max_S = np.max(np.abs(S))
+    S = (255.0 / max_S) * S
+
+    for i in range(n):
+
+        X1 = M[:, i].reshape((r, c)).astype('int')
+        X2 = L[:, i].reshape((r, c)).astype('int')
+        X3 = S[:, i].reshape((r, c)).astype('int')
+        X4 = X2 + X3
+        X = np.concatenate((X1, X4, X2, X3), axis=1)
+        misc.imsave('{0}/{1}{2}'.format(path_out, i, frame_format), X)
+
+
+
+if __name__ == '__main__':
+
+    # load configuration file
+    config = json.loads(open('./orl-config.json').read())
+
+    # execute each experiment defined in the configuration file
+    for test in config["Execute"]:
+
+        # Load config arguments
+        path_in = config["Experiments"][test]["files"]["path_in"]
+        path_out = os.path.join(config["Experiments"][test]["files"]["path_out"], test)
+        faces = config["Experiments"][test]["files"]["faces"]
+        frame_start = config["Experiments"][test]["files"]["frame_range0"]
+        frame_end = config["Experiments"][test]["files"]["frame_range1"]
+        frame_format = config["Experiments"][test]["files"]["frame_format"]
+
+        iters = config["Experiments"][test]["parameters"]["iters"]
+        mu1 = config["Experiments"][test]["parameters"]["mu1"]
+        mu2 = config["Experiments"][test]["parameters"]["mu2"]
+        epsilon = config["Experiments"][test]["parameters"]["epsilon"]
+        rho = config["Experiments"][test]["parameters"]["rho"]
+
+        
+        # load images and generate matrix A with each frame per column
+        A, r, c = loadFrames(path_in, faces, frame_start, frame_end, frame_format)
+
+              
+        # execute algorithm NMF-LR
+        t0 = time.clock()
+        W, d, H, S = odin.nmf_WDH_LS(A, mu1, mu2, rho, iters)
+        t1 = time.clock()
+
+
+        # create directory
+        if not os.path.exists(path_out):
+            os.makedirs(path_out)
+
+        # save statistics for this experiment
+        statistics = {
+            "Experiment": config["Experiments"][test],
+            "Results": {
+                "time": t1 - t0,
+                "rank": d.shape[0],
+                "relError": np.linalg.norm(A - np.dot(W, np.dot(np.diag(d), H)) - S)**2 / np.linalg.norm(A)**2
+            }
+        }
+
+        with open('{0}/{1}_results.json'.format(path_out,test), 'w') as outfile:
+            json.dump(statistics, outfile, indent=4, sort_keys=True)
+
+
+        # print some result
+        print test
+        print 'time: ', statistics["Results"]["time"]
+        print 'rank: ', statistics["Results"]["rank"]
+        print 'relError: ', statistics["Results"]["relError"]
+        print
+
+        # save W
+        generateFrames(W, r, c, path_out, 'W_', frame_start, frame_end, frame_format)
+
+        # save frames from L and S
+        L = np.dot(W, np.dot(np.diag(d), H))
+        #generateFrames(L, r, c, path_out, faces, 'L_', frame_start, frame_end, frame_format)
+
+        #generateFrames(S, r, c, path_out, 'S_', frame_start, frame_end, frame_format)
+
+        mixFrames(A, L, S, r, c, path_out, faces, 'X_', frame_start, frame_end, frame_format)
+        
