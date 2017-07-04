@@ -5,7 +5,7 @@
             "description": "Low-rank and Sparse with Non-Negative constrains for the ORL database",
             "files": {
                 "path_in": "./att_faces",
-                "faces": ["s4"],
+                "faces": ["s1","s2","s4"],
                 "path_out": "./results",
                 "frame_range0": 1,
                 "frame_range1": 10,
@@ -17,21 +17,21 @@
                     100,
                     200,
                     500,
-                    1000
+                    1500
                 ],
                 "mu1": [
-                    5.0,
-                    5.0,
-                    5.0,
-                    5.0,
-                    5.0
+                    15.0,
+                    15.0,
+                    15.0,
+                    15.0,
+                    15.0
                 ],
                 "mu2": [
-                    0.01,
-                    0.01,
-                    0.01,
-                    0.01,
-                    0.01
+                    0.015,
+                    0.015,
+                    0.015,
+                    0.015,
+                    0.015
                 ],
                 "epsilon": [
                     0.0001,

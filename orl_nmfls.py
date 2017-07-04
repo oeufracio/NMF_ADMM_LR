@@ -52,8 +52,25 @@ def generateFrames(A, r, c, path_out, file_name, frame_start, frame_end, frame_f
         name = '{0}/{1}{2}{3}'.format(path_out, file_name, i, frame_format)
         misc.imsave(name, A[:, i].reshape((r, c)).astype('int'))
 
+def generateBasis(W, r, c, path_out, file_name, frame_format):
 
-def mixFrames(M, L, S, r, c, path_out, faces, file_name, frame_start, frame_end, frame_format):
+    k = W.shape[1]
+
+    for i in range(k):
+        max_W = np.max(W[:,i])
+        W[:,i] = (255.0 / max_W) * W[:,i]
+    
+    
+    X = W[:,0].reshape((r,c)).astype('int')
+
+    for i in range(1,k):
+        X = np.concatenate(( X,W[:,i].reshape((r,c)).astype('int')), axis=1)
+
+    misc.imsave('{0}/{1}{2}'.format(path_out, file_name, frame_format), X)
+
+
+
+def mixFrames(M, WH,  L, S, r, c, path_out, faces, frame_start, frame_end, frame_format):
 
     n = M.shape[1]
 
@@ -66,14 +83,25 @@ def mixFrames(M, L, S, r, c, path_out, faces, file_name, frame_start, frame_end,
     max_S = np.max(np.abs(S))
     S = (255.0 / max_S) * S
 
-    for i in range(n):
+    max_WH = np.max(WH)
+    WH = (255.0 / max_WH) * WH
 
-        X1 = M[:, i].reshape((r, c)).astype('int')
-        X2 = L[:, i].reshape((r, c)).astype('int')
-        X3 = S[:, i].reshape((r, c)).astype('int')
-        X4 = X2 + X3
-        X = np.concatenate((X1, X4, X2, X3), axis=1)
-        misc.imsave('{0}/{1}{2}'.format(path_out, i, frame_format), X)
+
+    for j in range( len(faces) ):
+
+    # create directory
+        if not os.path.exists( os.path.join(path_out,faces[j]) ):
+            os.makedirs( os.path.join(path_out,faces[j]) )
+
+        for i in range(frame_end-frame_start+1):
+
+            X1 = M[:, j*(frame_end-frame_start+1)+i].reshape((r, c)).astype('int')
+            X2 = WH[:,j*(frame_end-frame_start+1)+i].reshape((r, c)).astype('int')
+            X3 = L[:, j*(frame_end-frame_start+1)+i].reshape((r, c)).astype('int')
+            X4 = S[:, j*(frame_end-frame_start+1)+i].reshape((r, c)).astype('int')
+            X5 = X3 + X4
+            X = np.concatenate((X1, X2, X5, X3, X4), axis=1)
+            misc.imsave('{0}/{1}{2}'.format(os.path.join(path_out,faces[j]), frame_start+i, frame_format), X)
 
 
 
@@ -103,11 +131,15 @@ if __name__ == '__main__':
         # load images and generate matrix A with each frame per column
         A, r, c = loadFrames(path_in, faces, frame_start, frame_end, frame_format)
 
-              
+        # ------------------------------------------------------- #
         # execute algorithm NMF-LR
         t0 = time.clock()
-        W, d, H, S = odin.nmf_WDH_LS(A, mu1, mu2, rho, iters)
+        W1, d1, H1, S1 = odin.nmf_WDH_LS(A.copy(), mu1, mu2, rho, iters)
         t1 = time.clock()
+
+        #e execute algorithm NMF-ADMM
+        W2, H2 = odin.nmf_WH(A.copy(), W1.shape[1], rho, int(3000))
+        # ------------------------------------------------------- #
 
 
         # create directory
@@ -119,8 +151,8 @@ if __name__ == '__main__':
             "Experiment": config["Experiments"][test],
             "Results": {
                 "time": t1 - t0,
-                "rank": d.shape[0],
-                "relError": np.linalg.norm(A - np.dot(W, np.dot(np.diag(d), H)) - S)**2 / np.linalg.norm(A)**2
+                "rank": d1.shape[0],
+                "relError": np.linalg.norm(A - np.dot(W1, np.dot(np.diag(d1), H1)) - S1)**2 / np.linalg.norm(A)**2
             }
         }
 
@@ -134,15 +166,17 @@ if __name__ == '__main__':
         print 'rank: ', statistics["Results"]["rank"]
         print 'relError: ', statistics["Results"]["relError"]
         print
+        print np.linalg.norm(A - np.dot(W2, H2))**2 / np.linalg.norm(A)**2
 
-        # save W
-        generateFrames(W, r, c, path_out, 'W_', frame_start, frame_end, frame_format)
+        
+        # save W1
+        generateBasis(W1, r, c, path_out,  'W1_', frame_format)
+    
+        # save W2
+        generateBasis(W2, r, c, path_out,  'W2_', frame_format)
 
-        # save frames from L and S
-        L = np.dot(W, np.dot(np.diag(d), H))
-        #generateFrames(L, r, c, path_out, faces, 'L_', frame_start, frame_end, frame_format)
 
-        #generateFrames(S, r, c, path_out, 'S_', frame_start, frame_end, frame_format)
-
-        mixFrames(A, L, S, r, c, path_out, faces, 'X_', frame_start, frame_end, frame_format)
+        # save reconstructions
+        mixFrames(A, np.dot(W2, H2), np.dot(W1, np.dot(np.diag(d1), H1)), S1, r, c, path_out, faces, frame_start, frame_end, frame_format)
+        
         
